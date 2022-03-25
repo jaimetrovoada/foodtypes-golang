@@ -3,10 +3,9 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
-	"strings"
 
+	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -18,57 +17,65 @@ func connectDb() *sql.DB {
 	return db
 }
 
-func queryData(db *sql.DB, foodName string) string {
-	rows, err := db.Query("SELECT `SCIENTIFIC NAME` FROM `mockdata-food` WHERE `FOOD NAME` like ?", foodName)
+type Food struct {
+	FoodName       string `json:"foodName"`
+	ScientificName string `json:"scientificName"`
+	Group          string `json:"group"`
+	SubGroup       string `json:"subGroup"`
+}
+
+func getAllFoods(c *gin.Context) {
+	db := connectDb()
+	rows, err := db.Query("SELECT * FROM `mockdata-food`")
 	if err != nil {
 		fmt.Println(err)
 	}
-	var name string
+	var allFoodsData []Food
 	for rows.Next() {
-		var sciName string
-		err = rows.Scan(&sciName)
+		var foodData Food
+		err = rows.Scan(&foodData.FoodName, &foodData.ScientificName, &foodData.Group, &foodData.SubGroup)
 		if err != nil {
 			fmt.Println(err)
-			return ""
 		}
-		fmt.Println(sciName)
-		name = sciName
+		allFoodsData = append(allFoodsData, foodData)
+		fmt.Println(allFoodsData)
 	}
 
-	return name
+	c.IndentedJSON(http.StatusOK, allFoodsData)
+
 }
 
-func startPage(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()       // parse arguments, you have to call this by yourself
-	fmt.Println(r.Form) // print form information in server side
-	fmt.Println("path", r.URL.Path)
-	fmt.Println("scheme", r.URL.Scheme)
-	fmt.Println(r.Form["name"])
-	var foodName string
-	for k, v := range r.Form {
-		fmt.Println("key:", k)
-		fmt.Println("val:", strings.Join(v, ""))
-		foodName = v[0]
-	}
-
+func getFood(c *gin.Context) {
+	name := c.Param("foodName")
+	fmt.Printf("param is, %s", name)
 	db := connectDb()
-	scientificName := queryData(db, foodName)
-	fmt.Fprintf(w, scientificName) // send data to client side
-}
-
-func startServer() {
-	http.HandleFunc("/foodtypes", startPage) // set router
-	err := http.ListenAndServe(":9090", nil) // set listen port
+	rows, err := db.Query("SELECT * FROM `mockdata-food` WHERE `FOOD NAME` LIKE CONCAT('%', ?, '%')", name)
 	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+		fmt.Println(err)
 	}
+	var data []Food
+	for rows.Next() {
+		var foodData Food
+		err = rows.Scan(&foodData.FoodName, &foodData.ScientificName, &foodData.Group, &foodData.SubGroup)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(foodData)
+		data = append(data, foodData)
+	}
+
+	if len(data) > 0 {
+		c.IndentedJSON(http.StatusOK, data)
+	} else {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "food not found"})
+	}
+
+	return
 }
 
 func main() {
-	startServer()
-	// var foodName string
-	// fmt.Print("Enter a food name: ")
-	// fmt.Scanln(&foodName)
-	// db := connectDb()
-	// queryData(db, foodName)
+	router := gin.Default()
+	router.GET("/foodTypes", getAllFoods)
+	router.GET("/foodTypes/:foodName", getFood)
+	router.Run("localhost:8080")
 }
